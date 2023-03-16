@@ -1,0 +1,82 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: monstache-deployment
+  labels:
+    app: monstache
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: monstache
+  template:
+    metadata:
+      labels:
+        app: monstache
+    spec:
+      containers:
+      - name: monstache
+        image: rwynn/monstache:6.7.11
+        ports:
+        - containerPort: 80
+        command: ["monstache", "-f", "/monstache/config.toml"]
+        env:
+        - name: MONSTACHE_ES_URLS
+          valueFrom:
+            configMapKeyRef:
+              name: monstache-config
+              key: elasticsearch-url
+        - name: MONSTACHE_MONGO_URL
+          valueFrom:
+            secretKeyRef:
+              name: monstache-secret
+              key: mongodb-url
+        - name: MONSTACHE_ES_USER
+          valueFrom:
+            secretKeyRef:
+              name: monstache-secret
+              key: es-user
+        - name: MONSTACHE_ES_PASS
+          valueFrom:
+            secretKeyRef:
+              name: monstache-secret
+              key: es-password
+        volumeMounts:
+        - name: monstache-volume
+          mountPath: /monstache
+      volumes:
+      - name: monstache-volume
+        configMap:
+          name: monstache-mount-config
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: monstache-mount-config
+data:
+  config.toml: |-
+    direct-read-namespaces = ["sample-database.sample-collection"]
+    change-stream-namespaces = ["sample-database.sample-collection"]
+
+    [[mapping]]
+    namespace = "sample-database.sample-collection"
+    index = "sample-collection"
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: monstache-config
+data:
+  elasticsearch-url: http://es-sample-es-internal-http:9200
+
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: monstache-secret
+stringData:
+  mongodb-url: "mongodb+srv://sample-database:password@sample-project.xxxxxxx.mongodb.net"
+  es-user: monstache
+  es-password: password
