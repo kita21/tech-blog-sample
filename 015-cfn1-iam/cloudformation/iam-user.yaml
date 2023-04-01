@@ -1,0 +1,47 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: "stackName: iam-user. IAM::User IAM::Group IAM::Role"
+
+Resources:
+  AdminIAMUser:
+    Type: AWS::IAM::User
+    Properties:
+      UserName: admin
+      Groups:
+        - !Ref AdminIAMGroup
+
+  AdminIAMGroup:
+    Type: AWS::IAM::Group
+    Properties:
+      GroupName: admin-group
+      Policies:
+        - PolicyName: PolicieAllowAssumeRoleAdmin
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - sts:AssumeRole
+                Resource:
+                  - !GetAtt AdministratorRole.Arn
+                Condition:
+                  Bool:
+                    aws:MultiFactorAuthPresent: true
+
+  AdministratorRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: system-administrator
+      Description: aws resource administrator role
+      MaxSessionDuration: 43200 # 12h
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AdministratorAccess
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+        - Effect: Allow
+          Principal:
+            AWS: !Sub arn:aws:iam::${AWS::AccountId}:root # 循環依存エラーにならないようにAWSアカウント全体を指定
+          Action: sts:AssumeRole
+          Condition:
+            Bool:
+              aws:MultiFactorAuthPresent: true
