@@ -1,0 +1,65 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: "stackName: cloudtrail. AWS::CloudTrail::Trail  AWS::Logs::LogGroup AWS::S3::Bucket AWS::S3::BucketPolicy"
+
+Parameters:
+  Project:
+    Type: String
+    Description: Project Name
+    Default: example
+
+Resources:
+  CloudTrail:
+    Type: AWS::CloudTrail::Trail
+    Properties:
+      TrailName: !Sub ${Project}-cloudtrail
+      IsLogging: true
+      IncludeGlobalServiceEvents: true
+      IsMultiRegionTrail: true
+      EnableLogFileValidation: true
+      CloudWatchLogsLogGroupArn: !GetAtt CloudTrailCWLogGroup.Arn
+      CloudWatchLogsRoleArn: !ImportValue cloudtrail-role-arn
+      S3BucketName: !Ref CloudTrailS3Bucket
+      S3KeyPrefix: cloudtrail
+
+  CloudTrailCWLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties: 
+      LogGroupName: !Sub ${Project}-cloudtrail
+      RetentionInDays: 180
+
+  CloudTrailS3Bucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub ${Project}-cloudtrail-event-logs
+      VersioningConfiguration:
+        Status: Enabled
+  CloudTrailS3BucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref CloudTrailS3Bucket
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement: # https://docs.aws.amazon.com/ja_jp/awscloudtrail/latest/userguide/create-s3-bucket-policy-for-cloudtrail.html
+          - Sid: ReadPolicy4CloudTrail
+            Effect: Allow
+            Principal:
+              Service: cloudtrail.amazonaws.com
+            Action:
+              - s3:GetBucketAcl
+            Resource: !GetAtt CloudTrailS3Bucket.Arn
+            Condition:
+              StringEquals:
+                "aws:SourceArn": !Sub arn:aws:cloudtrail:${AWS::Region}:${AWS::AccountId}:trail/${Project}-cloudtrail
+          - Sid: WritePolicy4CloudTrail
+            Effect: Allow
+            Principal:
+              Service: cloudtrail.amazonaws.com
+            Action:
+              - s3:PutObject
+            Resource: !Sub
+              - ${BucketArn}/cloudtrail/AWSLogs/${AWS::AccountId}/*
+              - BucketArn: !GetAtt CloudTrailS3Bucket.Arn
+            Condition:
+              StringEquals:
+                "s3:x-amz-acl": bucket-owner-full-control
+                "aws:SourceArn": !Sub arn:aws:cloudtrail:${AWS::Region}:${AWS::AccountId}:trail/${Project}-cloudtrail

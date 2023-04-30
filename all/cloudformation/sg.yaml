@@ -1,0 +1,45 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: "stackName: {ENV}-sg. AWS::EC2::SecurityGroup"
+
+Parameters:
+  Env:
+    Type: String
+    Description: Project environment
+    AllowedValues: [dev, prd]
+  Project:
+    Type: String
+    Description: Project Name
+    Default: example
+
+Resources:
+  AppLBSG:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: !Sub ${Env}-${Project}-app-lb-sg
+      GroupDescription: !Sub ${Env}-${Project}-app-lb-sg
+      VpcId:
+        Fn::ImportValue: !Sub ${Env}-${Project}-vpc-id
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: 0.0.0.0/0
+      Tags:
+        - Key: Name
+          Value: !Sub ${Env}-${Project}-app-lb-sg
+
+  PrivateInstanceSG:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: !Sub ${Env}-${Project}-private-instance-sg
+      GroupDescription: !Sub ${Env}-${Project}-private-instance-sg
+      VpcId:
+        Fn::ImportValue: !Sub ${Env}-${Project}-vpc-id
+      SecurityGroupIngress: # ec2 /proc/sys/net/ipv4/ip_local_port_range
+        - IpProtocol: tcp
+          FromPort: 32768
+          ToPort: 60999
+          SourceSecurityGroupId: !Ref AppLBSG
+      Tags:
+        - Key: Name
+          Value: !Sub ${Env}-${Project}-private-instance-sg

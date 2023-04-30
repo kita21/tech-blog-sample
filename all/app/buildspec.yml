@@ -1,0 +1,35 @@
+version: 0.2
+run-as: root
+
+phases:
+  install:
+    runtime-versions:
+      docker: 20
+
+  pre_build:
+    commands:
+      - export AWS_REPOSITORY_URI=${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION_NAME}.amazonaws.com/${PREFIX}/${ENV}/${PROJECT}
+      - export DATETIME=`date +"%Y%m%d%H%M%S"`
+      - export LATEST_IMAGE_URI=${AWS_REPOSITORY_URI}:latest
+      - export IMAGE_URI=${AWS_REPOSITORY_URI}:${DATETIME}
+
+      - $(aws ecr get-login --region ${AWS_REGION_NAME} --no-include-email)
+      # 対象Imageがない場合でもビルド失敗にならないように
+      - docker pull ${LATEST_IMAGE_URI} || true
+    
+  build:
+    commands:
+      - |
+        docker build -f all/app/Dockerfile \
+          -t ${LATEST_IMAGE_URI} \
+          -t ${IMAGE_URI} \
+          all/app/.
+
+  post_build:
+    commands:
+     - docker push --all-tags ${AWS_REPOSITORY_URI}
+     - echo '[{"name":"'${PREFIX}-${ENV}-${PROJECT}-container'","imageUri":"'${IMAGE_URI}'"}]' > imagedefinitions.json
+
+artifacts:
+  files:
+    - imagedefinitions.json

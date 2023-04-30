@@ -1,0 +1,76 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: "stackName: {Prefix}-ecs-service. AWS::ECS::Service"
+
+Metadata:
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      - Label:
+          default: "Environment Name Configuration"
+        Parameters:
+          - Prefix
+          - Env
+          - Project
+      - Label:
+          default: "ECS Service Parameter Configuration"
+        Parameters:
+          - DesiredCount
+Parameters:
+  Prefix:
+    Type: String
+    Description: AWS resource version management prefix
+    Default: v1
+  Env:
+    Type: String
+    Description: Project environment
+    AllowedValues: [dev, prd]
+  Project:
+    Type: String
+    Description: Project Name
+    Default: example
+  DesiredCount:
+    Type: Number
+    Description: ECS Service task DesiredCount
+    Default: 1
+  MaximumPercent:
+    Type: Number
+    Description: ECS Service task max percentage
+    Default: 100
+  MinimumHealthyPercent:
+    Type: Number
+    Description: ECS Service task min percentage
+    Default: 0
+
+Resources:
+  ECSService:
+    Type: AWS::ECS::Service
+    Properties:
+      ServiceName: !Sub ${Prefix}-${Env}-${Project}-service
+      Cluster:
+        Fn::ImportValue: !Sub ${Prefix}-${Env}-${Project}-cluster-arn
+      DeploymentConfiguration:
+        MaximumPercent: !Ref MaximumPercent
+        MinimumHealthyPercent: !Ref MinimumHealthyPercent
+      DesiredCount: !Ref DesiredCount
+      HealthCheckGracePeriodSeconds: 0
+      LaunchType: EC2
+      LoadBalancers:
+        - TargetGroupArn:
+            Fn::ImportValue: !Sub ${Prefix}-${Env}-${Project}-tg-arn
+          ContainerPort: 80
+          ContainerName: !Sub ${Prefix}-${Env}-${Project}-container
+      SchedulingStrategy: REPLICA
+      TaskDefinition: !Sub ${Prefix}-${Env}-${Project}-task # リビジョンで固定したくないためImportValueを使用しない
+      DeploymentController:
+        Type: ECS
+
+Outputs:
+  ECSServiceArn:
+    Description:  Output Export AWS::ECS::Service.Ref ECSService
+    Value: !Ref ECSService
+    Export:
+      Name: !Sub ${Prefix}-${Env}-${Project}-ecs-service-name
+  ECSServiceName:
+    Description:  Output Export AWS::ECS::Service.Ref ECSService
+    Value: !GetAtt ECSService.Name
+    Export:
+      Name: !Sub ${Prefix}-${Env}-${Project}-ecs-service-arn

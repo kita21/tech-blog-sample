@@ -1,0 +1,126 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: "stackName: {ENV}-subnet. AWS::EC2::Subnet AWS::EC2::RouteTable AWS::EC2::Route AWS::EC2::SubnetRouteTableAssociation AWS::EC2::EIP AWS::EC2::NatGateway"
+
+Parameters:
+  Env:
+    Type: String
+    Description: Project environment
+    AllowedValues: [dev, prd]
+  Project:
+    Type: String
+    Description: Project Name
+    Default: example
+
+Resources:
+# Subnet
+  PublicSubnet1a:
+    Type: AWS::EC2::Subnet
+    Properties:
+      AvailabilityZone: ap-northeast-1a
+      CidrBlock: 10.0.1.0/24
+      VpcId:
+        Fn::ImportValue: !Sub ${Env}-${Project}-vpc-id
+      Tags:
+        - Key: Name
+          Value: !Sub ${Env}-${Project}-public-1a
+  PublicSubnet1c:
+    Type: AWS::EC2::Subnet
+    Properties:
+      AvailabilityZone: ap-northeast-1c
+      CidrBlock: 10.0.2.0/24
+      VpcId:
+        Fn::ImportValue: !Sub ${Env}-${Project}-vpc-id
+      Tags:
+        - Key: Name
+          Value: !Sub ${Env}-${Project}-public-1c
+
+  PrivateSubnet1a:
+    Type: AWS::EC2::Subnet
+    Properties:
+      AvailabilityZone: ap-northeast-1a
+      CidrBlock: 10.0.128.0/24
+      VpcId:
+        Fn::ImportValue: !Sub ${Env}-${Project}-vpc-id
+      Tags:
+        - Key: Name
+          Value: !Sub ${Env}-${Project}-private-1a
+  PrivateSubnet1c:
+    Type: AWS::EC2::Subnet
+    Properties:
+      AvailabilityZone: ap-northeast-1c
+      CidrBlock: 10.0.129.0/24
+      VpcId:
+        Fn::ImportValue: !Sub ${Env}-${Project}-vpc-id
+      Tags:
+        - Key: Name
+          Value: !Sub ${Env}-${Project}-private-1c
+
+# RouteTable
+  PublicSubnetRT:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId:
+        Fn::ImportValue: !Sub ${Env}-${Project}-vpc-id
+      Tags:
+        - Key: Name
+          Value: !Sub ${Env}-${Project}-public-rt
+  PublicSubnetRoute:
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref PublicSubnetRT
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId:
+        Fn::ImportValue: !Sub ${Env}-${Project}-igw-id
+  PublicSubnet1aRTAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PublicSubnet1a
+      RouteTableId: !Ref PublicSubnetRT
+  PublicSubnet1cRTAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PublicSubnet1c
+      RouteTableId: !Ref PublicSubnetRT
+
+  PrivateSubnetRT:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId:
+        Fn::ImportValue: !Sub ${Env}-${Project}-vpc-id
+      Tags:
+        - Key: Name
+          Value: !Sub ${Env}-${Project}-private-rt
+  PrivateSubnetRoute:
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref PrivateSubnetRT
+      DestinationCidrBlock: 0.0.0.0/0
+      NatGatewayId: !Ref NatGW
+  PrivateSubnet1aRTAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PrivateSubnet1a
+      RouteTableId: !Ref PrivateSubnetRT
+  PrivateSubnet1cRTAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PrivateSubnet1c
+      RouteTableId: !Ref PrivateSubnetRT
+
+# NatGateway
+  NatEIP:
+    Type: AWS::EC2::EIP
+    Properties:
+      Domain: vpc
+      Tags:
+        - Key: Name
+          Value: !Sub ${Env}-${Project}-nat-eip
+
+  NatGW:
+    Type: AWS::EC2::NatGateway
+    Properties:
+      AllocationId: !GetAtt NatEIP.AllocationId
+      SubnetId: !GetAtt PublicSubnet1a.SubnetId
+      Tags:
+        - Key: Name
+          Value: !Sub ${Env}-${Project}-natgw

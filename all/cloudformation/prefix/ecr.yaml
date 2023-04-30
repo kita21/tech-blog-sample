@@ -1,0 +1,61 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: "stackName: {Prefix}-{Env}-ecr. AWS::ECR::Repository"
+
+Metadata:
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      - Label:
+          default: Environment Name Configuration
+        Parameters:
+          - Prefix
+          - Env
+          - Project
+Parameters:
+  Prefix:
+    Type: String
+    Description: AWS resource version management prefix
+    Default: v1
+  Env:
+    Type: String
+    Description: Project environment
+    AllowedValues: [dev, prd]
+  Project:
+    Type: String
+    Description: Project Name
+    Default: example
+
+Mappings:
+  EnvMaps:
+    common:
+      ECRLifecyclePolicy: |
+        {
+          "rules": [
+            {
+              "rulePriority": 1,
+              "description": "Delete more than 10 images",
+              "selection": {
+                "tagStatus": "untagged",
+                "countType": "imageCountMoreThan",
+                "countNumber": 10
+              },
+              "action": {
+                "type": "expire"
+              }
+            }
+          ]
+        }
+
+Resources:
+  ECR:
+    Type : "AWS::ECR::Repository"
+    Properties:
+      RepositoryName: !Sub "${Prefix}/${Env}/${Project}"
+      LifecyclePolicy:
+        LifecyclePolicyText: !FindInMap [EnvMaps, common, ECRLifecyclePolicy]
+
+Outputs:
+  ECRUri:
+    Description: Output Export AWS::ECS::Cluster.RepositoryUri
+    Value: !GetAtt ECR.RepositoryUri
+    Export:
+      Name: !Sub ${Prefix}-${Env}-${Project}-ecr-uri
