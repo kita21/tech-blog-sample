@@ -1,0 +1,46 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: "stackName: {ENV}-vpc. AWS::EC2::VPC AWS::EC2::InternetGateway AWS::EC2::VPCGatewayAttachment"
+
+Parameters:
+  Env:
+    Type: String
+    Description: Project environment
+    AllowedValues: [dev, prd]
+  Project:
+    Type: String
+    Description: Project Name
+    Default: example
+
+Resources:
+  VPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: 10.0.0.0/16
+      Tags:
+        - Key: Name
+          Value: !Sub ${Env}-${Project}-vpc
+
+  IGW:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+        - Key: Name
+          Value: !Sub ${Env}-${Project}-igw
+
+  AttachIGW:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref VPC
+      InternetGatewayId: !Ref IGW
+
+Outputs:
+  VPCId:
+    Description: Output Export AWS::EC2::VPC.Ref VPCId
+    Value: !Ref VPC
+    Export:
+      Name: !Sub ${Env}-${Project}-vpc-id
+  IGWId:
+    Description: Output Export  AWS::EC2::InternetGateway IGWId
+    Value: !Ref IGW
+    Export:
+      Name: !Sub ${Env}-${Project}-igw-id
