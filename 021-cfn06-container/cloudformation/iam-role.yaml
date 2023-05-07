@@ -1,0 +1,88 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: "stackName: iam-role. AWS::IAM::Role AWS::IAM::InstanceProfile"
+
+Resources:
+  CloudTrailRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: cloudtrail-role
+      Path: /service-role/
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - cloudtrail.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      Policies:
+        - PolicyName: cloudtrail-policy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Sid: CloudWatchPutPolicy
+                Effect: Allow
+                Action:
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: !Sub arn:aws:logs:${AWS::Region}:${AWS::AccountId}:*
+
+  ECSInstanceProfileRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: ecs-instance-profile-role
+      Path: /
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - ec2.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
+        - arn:aws:iam::aws:policy/service-role/AmazonEC2ContainerServiceforEC2Role
+
+  ECSInstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Path: /
+      Roles:
+        - !Ref ECSInstanceProfileRole
+
+  TaskExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: task-execution-role
+      Path: /service-role/
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - ecs-tasks.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy
+
+Outputs:
+  CloudTrailRoleArn:
+    Description: Output Export AWS::IAM::Role.Arn CloudTrailRole
+    Value: !GetAtt CloudTrailRole.Arn
+    Export:
+      Name: cloudtrail-role-arn
+  ECSInstanceProfileArn:
+    Description: Output Export AWS::IAM::InstanceProfile.Arn ECSInstanceProfile
+    Value: !GetAtt ECSInstanceProfile.Arn
+    Export:
+      Name: ecs-instance-profile-arn
+  TaskExecutionRoleArn:
+    Description: Output Export AWS::IAM::Role.Arn TaskExecutionRole
+    Value: !GetAtt TaskExecutionRole.Arn
+    Export:
+      Name: task-execution-role-arn
