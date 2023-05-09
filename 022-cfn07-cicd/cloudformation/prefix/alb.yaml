@@ -1,0 +1,136 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: "stackName: {Prefix}-{Env}-alb. AWS::ElasticLoadBalancingV2::LoadBalancer AWS::ElasticLoadBalancingV2::Listener AWS::ElasticLoadBalancingV2::ListenerRule AWS::ElasticLoadBalancingV2::TargetGroup"
+
+Metadata:
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      - Label:
+          default: Environment Name Configuration
+        Parameters:
+          - Prefix
+          - Env
+          - Project
+      - Label:
+          default: Network And Security Configuration
+        Parameters:
+          - VpcId
+          - SubnetId
+          - SecurityGroup
+Parameters:
+  Prefix:
+    Type: String
+    Description: AWS resource version management prefix
+    Default: v1
+  Env:
+    Type: String
+    Description: Project environment
+    AllowedValues: [dev, prd]
+  Project:
+    Type: String
+    Description: Project Name
+    Default: example
+  VpcId:
+    Type: AWS::EC2::VPC::Id
+    Description: "VPC for ALB"
+  SubnetId:
+    Type: List<AWS::EC2::Subnet::Id>
+    Description: Subnet for ALB
+  SecurityGroup:
+    Type: List<AWS::EC2::SecurityGroup::Id>
+    Description: SecurityGroup for ALB
+  Domain:
+    Type: String
+    Description: Domain name for ALB
+  
+
+Resources:
+  ALB:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      Name: !Sub ${Prefix}-${Env}-${Project}-alb
+      Type: application
+      Scheme: internet-facing
+      Subnets: !Ref SubnetId
+      SecurityGroups: !Ref SecurityGroup
+      LoadBalancerAttributes:
+        - Key: idle_timeout.timeout_seconds
+          Value: 60
+        - Key: access_logs.s3.enabled
+          Value: True
+        - Key: access_logs.s3.bucket
+          Value: 
+            Fn::ImportValue: !Sub ${Project}-aws-resource-access-logs-s3-bucket-name
+        - Key: "access_logs.s3.prefix"
+          Value: !Sub elb/${Prefix}/${Prefix}-${Env}-${Project}-alb
+
+  ALBHttpsListener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      Certificates:
+        - CertificateArn: !ImportValue acm-arn
+      DefaultActions:
+        - Type: fixed-response
+          FixedResponseConfig:
+            ContentType: text/plain
+            MessageBody: Access denied
+            StatusCode: 403
+      LoadBalancerArn: !Ref ALB
+      Port: 443
+      Protocol: HTTPS
+
+  ALBHttpsLisnerRule:
+    Type: AWS::ElasticLoadBalancingV2::ListenerRule
+    Properties:
+      Priority: 1
+      ListenerArn: !Ref ALBHttpsListener
+      Actions:
+        - Type: forward
+          TargetGroupArn: !Ref ALBTG
+      Conditions:
+        - Field: host-header
+          Values:
+            - !Sub ${Domain}
+        - Field: http-header
+          HttpHeaderConfig:
+            HttpHeaderName: "{{resolve:secretsmanager:cf-custom-header:SecretString:CLOUDFRONT_CUSTOM_HEADER_NAME}}"
+            Values:
+              - "{{resolve:secretsmanager:cf-custom-header:SecretString:CLOUDFRONT_CUSTOM_HEADER_VALUE}}"
+
+  ALBTG:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      Name: !Sub ${Prefix}-${Env}-${Project}-tg
+      HealthCheckIntervalSeconds: 30
+      HealthCheckPath: /
+      HealthCheckPort: traffic-port
+      HealthCheckProtocol: HTTP
+      HealthCheckTimeoutSeconds: 5
+      HealthyThresholdCount: 5
+      UnhealthyThresholdCount: 3
+      Matcher:
+        HttpCode: 200
+      Port: 80
+      Protocol: HTTP
+      TargetGroupAttributes:
+        - Key: deregistration_delay.timeout_seconds
+          Value: 30
+      TargetType: instance
+      VpcId: !Ref VpcId
+
+
+Outputs:
+  ALBDNSName:
+    Description: Output Export AWS::ElasticLoadBalancingV2::LoadBalancer.DNSName
+    Value: !GetAtt ALB.DNSName
+    Export:
+      Name: !Sub ${Prefix}-${Env}-${Project}-alb-dns
+  ALBName:
+    Description: Output Export AWS::ElasticLoadBalancingV2::LoadBalancer.LoadBalancerName
+    Value: !GetAtt ALB.LoadBalancerName
+    Export:
+      Name: !Sub ${Prefix}-${Env}-${Project}-alb-name
+  ALBTGArn:
+    Description: Output Export AWS::ElasticLoadBalancingV2::TargetGroup.Ref
+    Value: !Ref ALBTG
+    Export:
+      Name: !Sub ${Prefix}-${Env}-${Project}-tg-arn

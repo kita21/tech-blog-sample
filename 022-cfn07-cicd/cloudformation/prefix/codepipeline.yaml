@@ -1,0 +1,147 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: "stackName: {Prefix}-{Env}-codepipeline. AWS::CodeBuild::Project AWS::CodePipeline::Pipeline"
+
+Metadata:
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      - Label:
+          default: Environment Name Configuration
+        Parameters:
+          - Prefix
+          - Env
+          - Project
+      - Label:
+          default: GitHub Configuration
+        Parameters:
+          - GitHubDeployBranch
+Parameters:
+  Prefix:
+    Type: String
+    Description: AWS resource version management prefix
+    Default: v1
+  Env:
+    Type: String
+    Description: Project environment
+    AllowedValues: [dev, prd]
+  Project:
+    Type: String
+    Description: Project Name
+    Default: example
+  GitHubDeployBranch:
+    Type: String
+    Description: GitHub deploy branch
+    Default: main
+
+Mappings:
+  EnvMaps:
+    common:
+      GitHubOrganization: kita21
+      GitHubRepository: tech-blog-sample 
+
+Resources:
+  ECSDeployCodeBuildProject:
+    Type: AWS::CodeBuild::Project
+    Properties:
+      Name: !Sub ${Prefix}-${Env}-${Project}-ecs-deploy-codebuild
+      Description: ${Prefix}-${Env}-${Project}-ecs-deploy-codebuild
+      ServiceRole: !ImportValue ecs-codebuild-service-role-arn
+      QueuedTimeoutInMinutes: 30
+      TimeoutInMinutes: 30
+      Artifacts:
+        Type: CODEPIPELINE
+      Cache:
+        Type: LOCAL
+        Modes:
+          - LOCAL_DOCKER_LAYER_CACHE
+      LogsConfig:
+        CloudWatchLogs:
+          GroupName:
+            Fn::ImportValue: !Sub ${Prefix}-${Env}-${Project}-deploy-codebuild-cw-loggroup-name
+          Status: ENABLED
+      Source:
+        BuildSpec: 022-cfn07-cicd/app/buildspec.yml
+        Type: CODEPIPELINE
+      Environment:
+        ComputeType: BUILD_GENERAL1_SMALL
+        Image: aws/codebuild/amazonlinux2-x86_64-standard:4.0
+        Type: LINUX_CONTAINER
+        PrivilegedMode: true
+        EnvironmentVariables:
+          - Name: ENV
+            Type: PLAINTEXT
+            Value: !Ref Env
+          - Name: PREFIX
+            Type: PLAINTEXT
+            Value: !Ref Prefix
+          - Name: PROJECT
+            Type: PLAINTEXT
+            Value: !Ref Project
+          - Name: AWS_ACCOUNT_ID
+            Type: PLAINTEXT
+            Value: !Ref AWS::AccountId
+          - Name: AWS_REGION_NAME
+            Type: PLAINTEXT
+            Value: !Ref AWS::Region
+
+  ECSDeployCodePipeline:
+    Type: AWS::CodePipeline::Pipeline
+    Properties:
+      Name: !Sub ${Prefix}-${Env}-${Project}-ecs-codepipeline
+      RoleArn: !ImportValue ecs-codepipeline-service-role-arn
+      ArtifactStore:
+        Type: S3
+        Location:
+          Fn::ImportValue: !Sub ${Project}-codepipeline-artifacts-s3-bucket-name
+      Stages:
+        - Name: Source
+          Actions:
+            - Name: SourceStage
+              ActionTypeId:
+                Category: Source
+                Owner: AWS
+                Version: 1
+                Provider: CodeStarSourceConnection
+              Configuration:
+                FullRepositoryId: !Sub
+                  - ${GitHubOrganization}/${GitHubRepository}
+                  - GitHubOrganization: !FindInMap [EnvMaps, common, GitHubOrganization]
+                    GitHubRepository: !FindInMap [EnvMaps, common, GitHubRepository]
+                ConnectionArn: !ImportValue codestar-github-connection-arn
+                BranchName: !Ref GitHubDeployBranch
+                DetectChanges: false
+                OutputArtifactFormat: CODE_ZIP
+              RunOrder: 1
+              OutputArtifacts:
+                - Name: SourceArtifact
+        - Name: Build
+          Actions:
+            - Name: BuildStage
+              ActionTypeId:
+                Category: Build
+                Owner: AWS
+                Version: 1
+                Provider: CodeBuild
+              Configuration:
+                ProjectName: !Ref ECSDeployCodeBuildProject
+              InputArtifacts:
+                - Name: SourceArtifact
+              OutputArtifacts:
+                - Name: BuildArtifact
+              RunOrder: 1
+        - Name: Deploy
+          Actions:
+            - Name: DeployStage
+              ActionTypeId:
+                Category: Deploy
+                Owner: AWS
+                Version: 1
+                Provider: ECS
+              Configuration:
+                ClusterName:
+                  Fn::ImportValue: !Sub ${Prefix}-${Env}-${Project}-ecs-cluster-name
+                ServiceName:
+                  Fn::ImportValue: !Sub ${Prefix}-${Env}-${Project}-ecs-service-name
+                FileName: imagedefinitions.json
+              InputArtifacts:
+                - Name: BuildArtifact
+              RunOrder: 1

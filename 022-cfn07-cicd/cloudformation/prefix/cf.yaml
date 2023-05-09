@@ -1,0 +1,97 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: "stackName: {Prefix}-{Env}-cf. AWS::CloudFront::Distribution"
+
+Metadata:
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      - Label:
+          default: Environment Name Configuration
+        Parameters:
+          - Prefix
+          - Env
+          - Project
+      - Label:
+          default: Resource Configuration
+        Parameters:
+          - Domain
+          - ACM
+
+Parameters:
+  Prefix:
+    Type: String
+    Description: Resorce prefix
+    Default: v1
+  Env:
+    Type: String
+    Description: Project environment
+    AllowedValues: [dev, prd]
+  Project:
+    Type: String
+    Description: Project Name
+    Default: example
+  Domain:
+    Type: String
+    Description: CloudFront DomainAliases
+  ACM:
+    Type: String
+    Description: us-east-1 ACM ARN
+    Default: arn:aws:acm:us-east-1:xxxxxxxxxxxx:certificate/xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
+
+Mappings:
+  EnvMaps:
+    common:
+      CloudFrontHostedZoneId: Z2FDTNDATAQYW2
+    dev:
+      ManagedRequestPolicyAllViewer: 216adef6-5c7f-47e4-b989-5492eafa07d3 # https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/using-managed-origin-request-policies.html
+      ManagedCachePolicyCachingDisabled: 4135ea2d-6df8-44a3-9df3-4b5a84be39ad # https://docs.aws.amazon.com/ja_jp/AmazonCloudFront/latest/DeveloperGuide/using-managed-cache-policies.html
+    prd:
+      ManagedRequestPolicyAllViewer: 216adef6-5c7f-47e4-b989-5492eafa07d3
+      ManagedCachePolicyCachingDisabled: 4135ea2d-6df8-44a3-9df3-4b5a84be39ad
+
+Resources:
+  CFDistribution:
+    Type: AWS::CloudFront::Distribution
+    Properties:
+      DistributionConfig:
+        Comment: !Sub ${Prefix}-${Env}-${Project}-cf
+        Aliases:
+          - !Ref Domain
+        Origins:
+          - DomainName:
+              Fn::ImportValue: !Sub ${Prefix}-${Env}-${Project}-alb-dns
+            Id: default
+            CustomOriginConfig:
+              HTTPSPort: 443
+              OriginProtocolPolicy: https-only
+            OriginCustomHeaders:
+              - HeaderName: "{{resolve:secretsmanager:cf-custom-header:SecretString:CLOUDFRONT_CUSTOM_HEADER_NAME}}"
+                HeaderValue: "{{resolve:secretsmanager:cf-custom-header:SecretString:CLOUDFRONT_CUSTOM_HEADER_VALUE}}"
+        Enabled: true
+        HttpVersion: http2
+        IPV6Enabled: true
+        PriceClass: PriceClass_All
+        DefaultCacheBehavior:
+          TargetOriginId: default
+          AllowedMethods: ["DELETE", "GET", "HEAD", "OPTIONS", "PATCH", "POST", "PUT"]
+          ViewerProtocolPolicy: redirect-to-https
+          CachePolicyId: !FindInMap [EnvMaps, !Ref Env, ManagedCachePolicyCachingDisabled]
+          OriginRequestPolicyId: !FindInMap [EnvMaps, !Ref Env, ManagedRequestPolicyAllViewer]
+        ViewerCertificate:
+          AcmCertificateArn: !Ref ACM
+          SslSupportMethod: sni-only
+          MinimumProtocolVersion: TLSv1.2_2021
+        Logging:
+          IncludeCookies: true
+          Bucket:
+            Fn::ImportValue: !Sub ${Project}-aws-resource-access-logs-s3-bucket-domain-name
+          Prefix: !Sub cloudfront/${Prefix}/${Prefix}-${Env}-${Project}-cf
+
+  PublicHostedZoneRecord:
+    Type: AWS::Route53::RecordSet
+    Properties:
+      HostedZoneId: !ImportValue public-hosted-zone-id
+      Name: !Ref Domain
+      Type: A
+      AliasTarget:
+        HostedZoneId: !FindInMap [EnvMaps, common, CloudFrontHostedZoneId]
+        DNSName: !GetAtt CFDistribution.DomainName

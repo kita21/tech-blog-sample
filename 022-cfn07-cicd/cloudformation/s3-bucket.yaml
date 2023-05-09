@@ -1,0 +1,105 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: "stackName: s3-bucket. AWS::S3::Bucket"
+
+Parameters:
+  Project:
+    Type: String
+    Description: Project Name
+    Default: example
+
+Mappings:
+  EnvMaps:
+    Common:
+      ApNortheast1ElbAccountId: "582318560864" # https://docs.aws.amazon.com/ja_jp/elasticloadbalancing/latest/application/enable-access-logging.html
+
+Resources:
+  S3LogsS3Bucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub ${Project}-s3-logs
+      AccessControl: LogDeliveryWrite
+      OwnershipControls:
+        Rules:
+          - ObjectOwnership: ObjectWriter
+      VersioningConfiguration:
+        Status: Suspended
+
+  AwsResourceAccessLogsS3Bucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub ${Project}-aws-resource-access-logs
+      AccessControl: Private
+      OwnershipControls:
+        Rules:
+          - ObjectOwnership: ObjectWriter
+      VersioningConfiguration:
+        Status: Suspended
+      LifecycleConfiguration:
+        Rules:
+          - Id: ExpireAfter90Days
+            Status: Enabled
+            ExpirationInDays: 90
+      LoggingConfiguration:
+        DestinationBucketName: !Ref S3LogsS3Bucket
+        LogFilePrefix: !Sub ${Project}-aws-resource-access-logs/
+  AwsResourceAccessLogsS3BucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref AwsResourceAccessLogsS3Bucket
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: Policy4ALB
+            Effect: Allow
+            Principal:
+              AWS: !Sub
+                - arn:aws:iam::${ElbAccountId}:root
+                - ElbAccountId: !FindInMap [EnvMaps, Common, ApNortheast1ElbAccountId]
+            Action:
+              - s3:PutObject
+            Resource: !Sub
+              - ${BucketArn}/elb/*
+              - BucketArn: !GetAtt AwsResourceAccessLogsS3Bucket.Arn
+
+  CodePipelineArtifactsS3Bucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub ${Project}-codepipeline-artifacts
+      AccessControl: Private
+      VersioningConfiguration:
+        Status: Suspended
+      LifecycleConfiguration:
+        Rules:
+          - Id: ExpireAfter30Days
+            Status: Enabled
+            ExpirationInDays: 30
+      LoggingConfiguration:
+        DestinationBucketName: !Ref S3LogsS3Bucket
+        LogFilePrefix: !Sub ${Project}-codepipeline-artifacts/
+
+Outputs:
+  AwsResourceAccessLogsS3BucketName:
+    Description: Output Export AWS::S3::Bucket.Ref AwsResourceAccessLogsS3Bucket
+    Value: !Ref AwsResourceAccessLogsS3Bucket
+    Export:
+      Name: !Sub ${Project}-aws-resource-access-logs-s3-bucket-name
+  CodePipelineArtifactsS3BucketName:
+    Description: Output Export AWS::S3::Bucket.Ref CodePipelineArtifactsS3Bucket
+    Value: !Ref CodePipelineArtifactsS3Bucket
+    Export:
+      Name: !Sub ${Project}-codepipeline-artifacts-s3-bucket-name
+  AwsResourceAccessLogsS3BucketArn:
+    Description: Output Export AWS::S3::Bucket.Arn AwsResourceAccessLogsS3Bucket
+    Value: !GetAtt AwsResourceAccessLogsS3Bucket.Arn
+    Export:
+      Name: !Sub ${Project}-aws-resource-access-logs-s3-bucket-arn
+  CodePipelineArtifactsS3BucketArn:
+    Description: Output Export AWS::S3::Bucket.Arn CodePipelineArtifactsS3Bucket
+    Value: !GetAtt CodePipelineArtifactsS3Bucket.Arn
+    Export:
+      Name: !Sub ${Project}-codepipeline-artifacts-s3-bucket-arn
+  AwsResourceAccessLogsS3BucketDomainName:
+    Description: Output Export AWS::S3::Bucket.DomainName AwsResourceAccessLogsS3Bucket
+    Value: !GetAtt AwsResourceAccessLogsS3Bucket.DomainName
+    Export:
+      Name: !Sub ${Project}-aws-resource-access-logs-s3-bucket-domain-name
