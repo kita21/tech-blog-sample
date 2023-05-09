@@ -1,0 +1,51 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: "stackName: {Prefix}-cw-logs. AWS::Logs::LogGroup"
+
+Metadata:
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      - Label:
+          default: "Environment Name Configuration"
+        Parameters:
+          - Prefix
+          - Env
+          - Project
+
+Parameters:
+  Prefix:
+    Type: String
+    Description: AWS resource version management prefix
+    Default: v1
+  Env:
+    Type: String
+    Description: Project environment
+    AllowedValues: [dev, prd]
+  Project:
+    Type: String
+    Description: Project Name
+    Default: example
+
+Resources:
+  ECSCWLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub ecs/${Prefix}-${Env}-${Project}
+      RetentionInDays: 7
+
+  DeployCodeBuildCwLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub codebuild/${Prefix}-${Env}-${Project}
+      RetentionInDays: 7
+
+Outputs:
+  ECSCWLogGroupName:
+    Description:  Output Export AWS::Logs::LogGroup.Ref ECSCWLogGroup
+    Value: !Ref ECSCWLogGroup
+    Export:
+      Name: !Sub ${Prefix}-${Env}-${Project}-ecs-cw-loggroup-name
+  DeployCodeBuildCwLogGroupName:
+    Description:  Output Export AWS::Logs::LogGroup.Ref DeployCodeBuildCwLogGroup
+    Value: !Ref DeployCodeBuildCwLogGroup
+    Export:
+      Name: !Sub ${Prefix}-${Env}-${Project}-deploy-codebuild-cw-loggroup-name

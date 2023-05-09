@@ -1,0 +1,238 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: "stackName: iam-role. AWS::IAM::Role AWS::IAM::InstanceProfile"
+
+Parameters:
+  Project:
+    Type: String
+    Description: Project Name
+    Default: example
+
+Resources:
+  CloudTrailRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: cloudtrail-role
+      Path: /service-role/
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - cloudtrail.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      Policies:
+        - PolicyName: cloudtrail-policy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Sid: CloudWatchPutPolicy
+                Effect: Allow
+                Action:
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: !Sub arn:aws:logs:${AWS::Region}:${AWS::AccountId}:*
+
+  ECSInstanceProfileRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: ecs-instance-profile-role
+      Path: /
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - ec2.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
+        - arn:aws:iam::aws:policy/service-role/AmazonEC2ContainerServiceforEC2Role
+
+  ECSInstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Path: /
+      Roles:
+        - !Ref ECSInstanceProfileRole
+
+  TaskExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: task-execution-role
+      Path: /service-role/
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - ecs-tasks.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy
+
+  ECSCodeBuildServiceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: ecs-codebuild-service-role
+      Path: /service-role/
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: codebuild.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: ecs-codebuild-service-policy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Sid: S3AccessPolicy
+                Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:PutObject
+                  - s3:GetObjectVersion
+                Resource:
+                  - !Sub
+                    - ${ArtifactBucket}/*
+                    - ArtifactBucket:
+                        Fn::ImportValue: !Sub ${Project}-codepipeline-artifacts-s3-bucket-arn
+              - Sid: ECRAccessPolicy
+                Effect: Allow
+                Action:
+                  - ecr:BatchCheckLayerAvailability
+                  - ecr:BatchGetImage
+                  - ecr:CompleteLayerUpload
+                  - ecr:GetAuthorizationToken
+                  - ecr:InitiateLayerUpload
+                  - ecr:PutImage
+                  - ecr:UploadLayerPart
+                  - ecr:CreateRepository
+                  - ecr:GetDownloadUrlForLayer
+                Resource:
+                  - !Sub arn:aws:ecr:${AWS::Region}:${AWS::AccountId}:repository/*
+              - Sid: ECRAuthPolicy
+                Effect: Allow
+                Action:
+                  - ecr:GetAuthorizationToken
+                Resource: "*"
+              - Sid: SSMGetParameterPolicy
+                Effect: Allow
+                Action:
+                  - ssm:GetParameters
+                Resource: !Sub arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/*
+              - Sid: KmsDecryptPolicy
+                Effect: Allow
+                Action:
+                  - kms:Decrypt
+                Resource: !Sub arn:aws:kms:${AWS::Region}:${AWS::AccountId}:key/*
+              - Sid: SSMCodeBuildAccessPolicy # https://docs.aws.amazon.com/ja_jp/codebuild/latest/userguide/session-manager.html
+                Effect: Allow
+                Action:
+                  - ssmmessages:CreateControlChannel
+                  - ssmmessages:CreateDataChannel
+                  - ssmmessages:OpenControlChannel
+                  - ssmmessages:OpenDataChannel
+                Resource: "*"
+              - Sid: CWAccessPolicy
+                Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: !Sub arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:*
+
+  ECSCodePipelineServiceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: ecs-codepipeline-service-role
+      Path: /service-role/
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - codepipeline.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      Policies:
+        - PolicyName: ecs-codepipeline-service-policy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Sid: S3AccessPolicy
+                Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:GetObjectVersion
+                  # - s3:GetBucketVersioning
+                  - s3:PutObject
+                Resource:
+                  - !Sub
+                    - ${ArtifactBucket}/*
+                    - ArtifactBucket:
+                        Fn::ImportValue: !Sub ${Project}-codepipeline-artifacts-s3-bucket-arn
+              - Sid: ECSAccessPolicy
+                Effect: Allow
+                Action:
+                  - ecs:DescribeServices
+                  - ecs:DescribeTaskDefinition
+                  - ecs:DescribeTasks
+                  - ecs:ListTasks
+                  - ecs:RegisterTaskDefinition
+                  - ecs:UpdateService
+                Resource:
+                  - "*"
+              - Sid: CodeBuildAccessPolicy
+                Effect: Allow
+                Action:
+                  - codebuild:StartBuild
+                  - codebuild:BatchGetBuilds
+                Resource: !Sub arn:aws:codebuild:${AWS::Region}:${AWS::AccountId}:project/*
+              - Effect: Allow
+                Action:
+                  - codestar-connections:UseConnection
+                Resource: !Sub arn:aws:codestar-connections:${AWS::Region}:${AWS::AccountId}:connection/*
+              - Sid: PassRole
+                Effect: Allow
+                Action: iam:PassRole
+                Resource:
+                 - "*"
+                Condition:
+                  StringEqualsIfExists:
+                    iam:PassedToService: ecs-tasks.amazonaws.com
+
+Outputs:
+  CloudTrailRoleArn:
+    Description: Output Export AWS::IAM::Role.Arn CloudTrailRole
+    Value: !GetAtt CloudTrailRole.Arn
+    Export:
+      Name: cloudtrail-role-arn
+  ECSInstanceProfileArn:
+    Description: Output Export AWS::IAM::InstanceProfile.Arn ECSInstanceProfile
+    Value: !GetAtt ECSInstanceProfile.Arn
+    Export:
+      Name: ecs-instance-profile-arn
+  TaskExecutionRoleArn:
+    Description: Output Export AWS::IAM::Role.Arn TaskExecutionRole
+    Value: !GetAtt TaskExecutionRole.Arn
+    Export:
+      Name: task-execution-role-arn
+  ECSCodeBuildServiceRoleArn:
+    Description: Output Export AWS::IAM::Role.Arn ECSCodeBuildServiceRole
+    Value: !GetAtt ECSCodeBuildServiceRole.Arn
+    Export:
+      Name: ecs-codebuild-service-role-arn
+  ECSCodePipelineServiceRoleArn:
+    Description: Output Export AWS::IAM::Role.Arn ECSCodePipelineServiceRole
+    Value: !GetAtt ECSCodePipelineServiceRole.Arn
+    Export:
+      Name: ecs-codepipeline-service-role-arn

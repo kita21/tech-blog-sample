@@ -1,0 +1,23 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: "stackName: route53. AWS::S3::Bucket"
+
+Parameters:
+  Domain:
+    Type: String
+    Description: Route53 Domain
+    Default: example.com
+
+Resources:
+  PublicHostedZone:
+    Type: AWS::Route53::HostedZone
+    Properties:
+      Name: !Ref Domain
+      HostedZoneConfig:
+        Comment: !Sub PublicHostedZone ${Domain}
+
+Outputs:
+  PublicHostedZoneId:
+    Description: Output Export AWS::Route53::HostedZone.Ref
+    Value: !Ref PublicHostedZone
+    Export:
+      Name: public-hosted-zone-id

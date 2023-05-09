@@ -1,0 +1,164 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: "stackName: {Prefix}-{Env}-ecs-cluster. AWS::ECS::Cluster AWS::EC2::LaunchTemplate AWS::AutoScaling::AutoScalingGroup"
+
+Metadata:
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      - Label:
+          default: Environment Name Configuration
+        Parameters:
+          - Prefix
+          - Env
+          - Project
+      - Label:
+          default: Network And Security Configuration
+        Parameters:
+          - SubnetId
+          - SecurityGroup
+      - Label:
+          default: AutoScalingGroup Parameter Configuration
+        Parameters:
+          - Priority1InstanceType
+          - Priority2InstanceType
+          - Priority3InstanceType
+          - AsgMaxSize
+          - AsgMinSize
+          - AsgDesiredSize
+          - AsgOnDemandBase
+          - AsgOnDemandPercentage
+Parameters:
+  Prefix:
+    Type: String
+    Description: AWS resource version management prefix
+    Default: v1
+  Env:
+    Type: String
+    Description: Project environment
+    AllowedValues: [dev, prd]
+  Project:
+    Type: String
+    Description: Project Name
+    Default: example
+  SubnetId:
+    Type: List<AWS::EC2::Subnet::Id>
+    Description: Subnet for ECSInstance
+  SecurityGroup:
+    Type: List<AWS::EC2::SecurityGroup::Id>
+    Description: SecurityGroup for ECSInstance
+  Priority1InstanceType:
+    Type: String
+    Description: Allowed ECS InstanceType. priority 1
+    AllowedValues: [t3.micro, t2.micro, t3.small]
+  Priority2InstanceType:
+    Type: String
+    Description: Allowed ECS InstanceType. priority 2
+    AllowedValues: [t3.micro, t2.micro, t3.small]
+  Priority3InstanceType:
+    Type: String
+    Description: Allowed ECS InstanceType. priority 3
+    AllowedValues: [t3.micro, t2.micro, t3.small]
+  AsgMaxSize:
+    Type: Number
+    Description: AutoScaling maximum number of ECSInstance
+    Default: 2
+  AsgMinSize:
+    Type: Number
+    Description: AutoScaling minimum number of ECSInstance
+    Default: 1
+  AsgDesiredSize:
+    Type: Number
+    Description: AutoScaling desired number of ECSInstance
+    Default: 1
+  AsgOnDemandBase:
+    Type: Number
+    Description: "Minimum number of activations on-demand ECSInstance"
+    Default: 0
+  AsgOnDemandPercentage:
+    Type: Number
+    Description: Percentage of on-demand ECSInstance(0~100%)
+    Default: 0
+    MaxValue: 100
+    MinValue: 0
+
+Mappings:
+  EnvMaps:
+    dev:
+      EbsVolume: 32
+      AMIId: ami-02378d43835d39ff4 # ecs_agent_version: 1.68.2 / image_version: 2.0.20230214
+    prd:
+      EbsVolume: 32
+      AMIId: ami-02378d43835d39ff4 # ecs_agent_version: 1.68.2 / image_version: 2.0.20230214
+
+Resources:
+  ECSCluster:
+    Type: AWS::ECS::Cluster
+    Properties:
+      ClusterName: !Sub ${Prefix}-${Env}-${Project}-cluster
+
+  ECSLT:
+    Type: AWS::EC2::LaunchTemplate
+    Properties:
+      LaunchTemplateName: !Sub ${Prefix}-${Env}-${Project}-lt
+      LaunchTemplateData:
+        SecurityGroupIds: !Ref SecurityGroup
+        InstanceInitiatedShutdownBehavior: terminate
+        IamInstanceProfile:
+          Arn: !ImportValue ecs-instance-profile-arn
+        BlockDeviceMappings:
+          - DeviceName: /dev/xvda
+            Ebs:
+              VolumeSize: !FindInMap [EnvMaps, !Ref Env, EbsVolume]
+              DeleteOnTermination: true
+              VolumeType: gp3
+        DisableApiTermination: false
+        ImageId: !FindInMap [EnvMaps, !Ref Env, AMIId]
+        UserData:
+          Fn::Base64: !Sub
+            - |
+              #!/bin/bash
+              echo ECS_CLUSTER=${ECS_CLUSTER} >> /etc/ecs/ecs.config
+            - ECS_CLUSTER: !Ref ECSCluster
+
+  ECSASG:
+    Type: AWS::AutoScaling::AutoScalingGroup
+    UpdatePolicy:
+      AutoScalingRollingUpdate:
+        MaxBatchSize: 1
+        MinInstancesInService: 1
+        PauseTime: PT2M
+    Properties:
+      AutoScalingGroupName: !Sub ${Prefix}-${Env}-${Project}-asg
+      MixedInstancesPolicy:
+        InstancesDistribution:
+          OnDemandBaseCapacity: !Ref AsgOnDemandBase
+          OnDemandPercentageAboveBaseCapacity: !Ref AsgOnDemandPercentage
+        LaunchTemplate:
+          LaunchTemplateSpecification:
+            LaunchTemplateId: !Ref ECSLT
+            Version: !GetAtt ECSLT.LatestVersionNumber
+          Overrides:
+            - InstanceType: !Ref Priority1InstanceType
+            - InstanceType: !Ref Priority2InstanceType
+            - InstanceType: !Ref Priority3InstanceType
+      MetricsCollection:
+        - Granularity: 1Minute
+      VPCZoneIdentifier: !Ref SubnetId
+      MinSize: !Ref AsgMinSize
+      MaxSize: !Ref AsgMaxSize
+      DesiredCapacity: !Ref AsgDesiredSize
+      Tags:
+        - Key: Name
+          Value: !Sub ${Prefix}-${Env}-${Project}-ecs-instance
+          PropagateAtLaunch: true
+
+Outputs:
+  ECSClusterArn:
+    Description: Output Export AWS::ECS::Cluster.Arn
+    Value: !GetAtt ECSCluster.Arn
+    Export:
+      Name: !Sub ${Prefix}-${Env}-${Project}-cluster-arn
+  ECSClusterName:
+    Description: Output Export AWS::ECS::Cluster.Ref
+    Value: !Ref ECSCluster
+    Export:
+      Name: !Sub ${Prefix}-${Env}-${Project}-ecs-cluster-name

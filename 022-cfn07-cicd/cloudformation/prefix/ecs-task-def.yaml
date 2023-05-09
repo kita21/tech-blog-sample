@@ -1,0 +1,66 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: "stackName: {Prefix}-{Env}-ecs-task-def. AWS::ECS::TaskDefinition"
+
+Metadata:
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      - Label:
+          default: Environment Name Configuration
+        Parameters:
+          - Prefix
+          - Env
+          - Project
+Parameters:
+  Prefix:
+    Type: String
+    Description: AWS resource version management prefix
+    Default: v1
+  Env:
+    Type: String
+    Description: Project environment
+    AllowedValues: [dev, prd]
+  Project:
+    Type: String
+    Description: Project Name
+    Default: example
+
+Mappings:
+  EnvMaps:
+    dev:
+      Cpu: 256
+      Memory: 516
+    prd:
+      Cpu: 256
+      Memory: 516
+
+Resources:
+  TaskDefinition:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      Family: !Sub ${Prefix}-${Env}-${Project}-task
+      RuntimePlatform:
+        CpuArchitecture: X86_64
+      RequiresCompatibilities:
+        - EC2
+      Cpu: !FindInMap [EnvMaps, !Ref Env, Cpu]
+      Memory: !FindInMap [EnvMaps, !Ref Env, Memory]
+      ExecutionRoleArn: !ImportValue task-execution-role-arn
+      ContainerDefinitions:
+        - Name: !Sub ${Prefix}-${Env}-${Project}-container
+          Cpu: !FindInMap [EnvMaps, !Ref Env, Cpu]
+          Memory: !FindInMap [EnvMaps, !Ref Env, Memory]
+          Image: !Sub
+            - ${URI}:latest
+            - URI:
+                Fn::ImportValue: !Sub ${Prefix}-${Env}-${Project}-ecr-uri
+          PortMappings:
+            - ContainerPort: 80
+              HostPort: 0
+              Protocol: tcp
+          Essential: true
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-group:
+                Fn::ImportValue: !Sub ${Prefix}-${Env}-${Project}-ecs-cw-loggroup-name
+              awslogs-region: ap-northeast-1
